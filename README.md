@@ -1,6 +1,6 @@
 # QC Prediction Using Machine Learning Models
 
-This repository provides a **Python script for predicting QC (Quality Control) status from tabular data using multiple pre-trained machine learning models**.
+This repository provides a Python script for predicting QC (Quality Control) status from tabular data using multiple pre-trained machine learning models.
 
 Four models are supported and executed in parallel:
 
@@ -9,7 +9,7 @@ Four models are supported and executed in parallel:
 - Support Vector Machine (SVM)
 - Neural Network (TensorFlow / Keras)
 
-Each model outputs the **predicted QC class**.
+Each model outputs the **predicted QC status**.
 
 ---
 
@@ -49,6 +49,9 @@ Example (`sample_input.csv`):
 ```csv
 TN_HU,CancerType,OpeBx,StorageTime
 35,Pancreas,Bx,12
+| TN_HU | CancerType | OpeBx | StorageTime |
+|-------|------------|-------|-------------|
+|  15   |  Pancreas  |   Bx  |     550     |
 ```
 
 ## Allowed Values
@@ -56,40 +59,39 @@ TN_HU,CancerType,OpeBx,StorageTime
 Percent tumor nuclei measured by pathologist
 
 **CancerType**
-*Adrenal_Gland
-*Ampulla_of_Vater
-*Biliary_Tract
-*Bladder_Urinary_Tract
-*Bone
-*Bowel
-*Breast
-*Cervix
-*CNS_Brain
-*Esophagus_Stomach
-*Eye
-*Head_and_Neck
-*Kidney
-*Liver
-*Lung
-*Other
-*Ovary_Fallopian_Tube
-*Pancreas
-*Penis
-*Peripheral_Nervous_System
-*Peritoneum
-*Pleura
-*Prostate
-*Skin
-*Soft_Tissue
-*Testis
-*Thymus
-*Thyroid
-*Uterus
-*OpeBx
+* Adrenal_Gland
+* Ampulla_of_Vater
+* Biliary_Tract
+* Bladder_Urinary_Tract
+* Bone
+* Bowel
+* Breast
+* Cervix
+* CNS_Brain
+* Esophagus_Stomach
+* Eye
+* Head_and_Neck
+* Kidney
+* Liver
+* Lung
+* Other
+* Ovary_Fallopian_Tube
+* Pancreas
+* Penis
+* Peripheral_Nervous_System
+* Peritoneum
+* Pleura
+* Prostate
+* Skin
+* Soft_Tissue
+* Testis
+* Thymus
+* Thyroid
+* Uterus
 
 **OpeBx**
-*Ope
-*Bx
+* Ope
+* Bx
 
 **StorageTime**
 FFPE storage period
@@ -105,3 +107,7 @@ git clone https://github.com/hnakahara/QCpredictor.git
 cd QCpredictor
 python predict_qc.py <input_csv> <output_csv>
 ```
+
+## License
+
+This project is licensed under the Creative Commons Attribution-NonCommercial (CC-By-NC) license. For more details, refer to the LICENSE file.
