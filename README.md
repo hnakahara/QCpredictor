@@ -30,6 +30,7 @@ Each model outputs the **predicted QC status**.
 ## Software Environment
 - pandas        2.3.2
 - numpy         2.1.3
+- scikit-learn  1.7.2 (the saved models require this exact version)
 - joblib        1.4.2
 - tensorflow    2.19.0
 
@@ -107,6 +108,36 @@ git clone https://github.com/hnakahara/QCpredictor.git
 cd QCpredictor
 python predict_qc.py <input_csv> <output_csv>
 ```
+
+### Web App
+
+A browser-based version is available (Japanese / English).
+Enter the five items below and the four models' predictions are shown.
+The storage time is calculated automatically as *submission date − collection date* (in days).
+
+| Input | Model column |
+|-------|--------------|
+| Tumor nuclei (%) (0–100) | TN_HU |
+| Cancer type | CancerType |
+| Surgical / Biopsy | OpeBx |
+| Collection date | — (used to calculate StorageTime) |
+| Submission date | — (used to calculate StorageTime) |
+
+Each model's prediction (Pass / Qualified) and the probability of *Qualified* are shown.
+The SVM probability is not shown because the SVM was trained with `class_weight='balanced'`,
+so its Platt-scaled probability does not agree with its prediction.
+
+- **Pass**: likely to pass the QC check
+- **Qualified**: detection sensitivity may be reduced
+
+Run locally (Python 3.13):
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+The app is designed to be deployed on [Streamlit Community Cloud](https://streamlit.io/cloud) (free).
 
 ## License
 
