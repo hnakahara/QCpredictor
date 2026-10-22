@@ -111,7 +111,7 @@ python predict_qc.py <input_csv> <output_csv>
 
 ### Web App
 
-A browser-based version is available (Japanese / English).
+A browser-based version is available (Japanese / English): **https://qcpredictor.streamlit.app**
 Enter the five items below and the four models' predictions are shown.
 The storage time is calculated automatically as *submission date − collection date* (in days).
 
@@ -130,7 +130,13 @@ so its Platt-scaled probability does not agree with its prediction.
 - **Pass**: likely to pass the QC check
 - **Qualified**: detection sensitivity may be reduced
 
-Run locally (Python 3.13):
+The storage time of the training data ranged from 0 to 4,714 days; a warning is shown for longer storage times.
+
+The web app does not need TensorFlow: the neural network is evaluated with numpy using the weights in
+`models/nn_qc_weights.npz`, exported from `models/nn_qc_model.keras` by `tools/export_nn_weights.py`
+(re-run it only if the NN model is retrained; it requires TensorFlow).
+
+Run locally (Python 3.12–3.14):
 
 ```bash
 pip install -r requirements.txt

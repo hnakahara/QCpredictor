@@ -21,9 +21,39 @@ CATEGORICAL_COLUMNS = ["CancerType", "OpeBx"]
 POSITIVE_LABEL = "Qualified"  # 確率を表示する側のラベル
 
 
+# 学習データの保存期間の範囲（日）。これを超える入力には警告を出す
+STORAGE_TRAIN_MIN = 0
+STORAGE_TRAIN_MAX = 4714
+
+
 def storage_days(collection_date: date, submission_date: date) -> int:
     """保存期間（日数）= 提出日 − 取得日。同日なら0日。"""
     return (submission_date - collection_date).days
+
+
+class NumpyMLP:
+    """
+    Kerasの全結合NNを numpy だけで計算する（TensorFlow不要）。
+    重みは tools/export_nn_weights.py で nn_qc_model.keras から書き出したもの。
+    Dropout は推論時には何もしないため省略している。
+    """
+
+    def __init__(self, path: Path):
+        with np.load(path) as z:
+            self.activations = [str(a) for a in z["activations"]]
+            self.weights = [(z[f"W{i}"], z[f"b{i}"]) for i in range(len(self.activations))]
+
+    def predict_proba(self, X) -> np.ndarray:
+        h = np.asarray(X, dtype=np.float32)
+        for (W, b), act in zip(self.weights, self.activations):
+            h = h @ W + b
+            if act == "relu":
+                h = np.maximum(h, 0)
+            elif act == "sigmoid":
+                h = 1.0 / (1.0 + np.exp(-h))
+            elif act != "linear":
+                raise ValueError(f"Unsupported activation: {act}")
+        return h.ravel()
 
 
 class QCPredictor:
@@ -50,10 +80,8 @@ class QCPredictor:
         self.svm_scaler = svm["scaler"]
         self.svm_feature_columns = svm["feature_columns"]
 
-        # NN（TensorFlowは重いので、ここで初めてimportする）
-        from tensorflow.keras.models import load_model
-
-        self.nn = load_model(model_dir / "nn_qc_model.keras")
+        # NN（numpyで計算する。TensorFlowは使わない）
+        self.nn = NumpyMLP(model_dir / "nn_qc_weights.npz")
         nn_pre = joblib.load(model_dir / "nn_qc_preprocess.joblib")
         self.nn_scaler = nn_pre["scaler"]
         self.nn_label_encoder = nn_pre["label_encoder_qc"]
@@ -118,7 +146,7 @@ class QCPredictor:
 
         # NN（シグモイド出力 = 2番目のクラス = Qualified の確率、閾値0.5）
         X = self._one_hot_scale(df, self.nn_feature_columns, self.nn_scaler)
-        prob = self.nn.predict(X, verbose=0).ravel()
+        prob = self.nn.predict_proba(X)
         assert self.nn_label_encoder.classes_[1] == POSITIVE_LABEL
         out["NN_pred"] = self.nn_label_encoder.inverse_transform((prob > 0.5).astype(int))
         out["NN_prob"] = prob

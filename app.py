@@ -4,14 +4,11 @@ QC予測 Webアプリ（Streamlit）
 入力5項目（TN_HU・がん種・手術/生検・検体取得日・検体提出日）から
 保存期間を算出し、4モデル（GBM / RF / SVM / NN）のQC判定を表示する。
 """
-import os
 from datetime import date
-
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # TensorFlowのログを抑制
 
 import streamlit as st
 
-from qc_core import QCPredictor, storage_days
+from qc_core import STORAGE_TRAIN_MAX, QCPredictor, storage_days
 
 REPO_URL = "https://github.com/hnakahara/QCpredictor"
 
@@ -32,9 +29,10 @@ TEXT = {
         "storage_help": "保存期間は「提出日 − 取得日」の日数で自動計算します。",
         "select": "選択してください",
         "submit": "予測する",
-        "loading": "モデルを読み込んでいます（初回は数十秒かかることがあります）…",
+        "loading": "モデルを読み込んでいます…",
         "err_missing": "未入力の項目があります：",
         "err_order": "検体提出日は検体取得日と同じ日か、それ以降にしてください。",
+        "warn_range": "保存期間が学習データの範囲（0〜{max:,}日）を超えています。予測の信頼性が低い可能性があります。",
         "result": "予測結果",
         "storage_line": "**保存期間：{days:,}日**",
         "model": "モデル",
@@ -71,9 +69,10 @@ TEXT = {
         "storage_help": "Storage time is calculated automatically as submission date − collection date, in days.",
         "select": "Select",
         "submit": "Predict",
-        "loading": "Loading models (the first run can take a few tens of seconds)…",
+        "loading": "Loading models…",
         "err_missing": "Please fill in: ",
         "err_order": "The submission date must be on or after the collection date.",
+        "warn_range": "The storage time is outside the range of the training data (0–{max:,} days). The predictions may be less reliable.",
         "result": "Results",
         "storage_line": "**Storage time: {days:,} days**",
         "model": "Model",
@@ -317,6 +316,8 @@ if last:
 
     st.subheader(T["result"])
     st.markdown(T["storage_line"].format(days=last["days"]))
+    if last["days"] > STORAGE_TRAIN_MAX:
+        st.warning(T["warn_range"].format(max=STORAGE_TRAIN_MAX))
     st.caption(
         f"{T['summary']}TN_HU {last['tn_hu']}% / {cancer_label(last['cancer_type'], lang)}"
         f" / {T['ope_bx_labels'][last['ope_bx']]}"

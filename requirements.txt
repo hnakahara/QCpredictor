@@ -1,10 +1,8 @@
 # Webアプリ（Streamlit Community Cloud）用の依存ライブラリ
-# Python 3.13 で動作確認済み
+# Python 3.12〜3.14 で動作確認済み。TensorFlowは不要（NNはnumpyで計算する）
 streamlit==1.66.1
 scikit-learn==1.7.2   # モデル保存時と同じ版（変更しないこと）
-tensorflow-cpu==2.20.0
-keras==3.15.1
 numpy==2.5.3
-pandas==2.3.2
+pandas==2.3.3
 scipy==1.18.1
 joblib==1.4.2
