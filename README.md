@@ -123,7 +123,8 @@ The storage time is calculated automatically as *submission date − collection 
 | Collection date | — (used to calculate StorageTime) |
 | Submission date | — (used to calculate StorageTime) |
 
-Each model's prediction (Pass / Qualified) and the probability of *Qualified* are shown.
+Each model's prediction (Pass / Qualified) and the probability of *Qualified* are shown,
+in the order GBM, RF, NN, SVM.
 The SVM probability is not shown because the SVM was trained with `class_weight='balanced'`,
 so its Platt-scaled probability does not agree with its prediction.
 
@@ -136,6 +137,20 @@ The web app does not need TensorFlow: the neural network is evaluated with numpy
 `models/nn_qc_weights.npz`, exported from `models/nn_qc_model.keras` by `tools/export_nn_weights.py`
 (re-run it only if the NN model is retrained; it requires TensorFlow).
 
+#### Batch prediction (CSV)
+
+Up to 1,000 samples can be predicted at once by uploading a CSV file (UTF-8 or Shift-JIS).
+The first 5 results are shown on screen and all results can be downloaded as a CSV.
+
+```csv
+TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate
+15,Adrenal_Gland,Bx,2024/01/01,2025/04/05
+```
+
+A `StorageTime` column (days) can be used instead of the two date columns, so `example/input_test.csv` can be uploaded as is.
+Rows with invalid values are not predicted; the reason is written in the `Message` column of the result CSV.
+The result CSV adds `StorageTime`, `<model>_pred` and `<model>_prob_Qualified` (0–1; not for SVM) columns.
+
 Run locally (Python 3.12–3.14):
 
 ```bash
@@ -144,6 +159,13 @@ streamlit run app.py
 ```
 
 The app is designed to be deployed on [Streamlit Community Cloud](https://streamlit.io/cloud) (free).
+
+## Citation
+
+This tool was developed to evaluate the quality of comprehensive genomic profiling tests using tissue specimens.
+If you use this tool in your research, please cite:
+
+> Nakahara H, et al. npj Genomic Med. 2026.
 
 ## License
 

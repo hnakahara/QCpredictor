@@ -4,5 +4,9 @@ gatherUsageStats = false
 [client]
 toolbarMode = "minimal"
 
+[server]
+# 一括入力のCSVは1,000件で約50KBのため、1MBあれば十分
+maxUploadSize = 1
+
 [theme]
 primaryColor = "#1f6feb"
