@@ -95,13 +95,15 @@ TEXT = {
         # お問い合わせ
         "contact": "お問い合わせ",
         "contact_intro": "ツールについてのご質問・ご意見は、こちらからお送りください。いただいた情報は、お問い合わせへの回答のためにのみ使用します。",
-        "contact_name": "お名前（任意）",
-        "contact_affiliation": "ご所属（任意）",
-        "contact_email": "メールアドレス（返信用・必須）",
+        "contact_name": "お名前（必須）",
+        "contact_affiliation": "ご所属（必須）",
+        "contact_email": "メールアドレス（必須・返信用）",
         "contact_message": "お問い合わせ内容（必須・2,000字まで）",
         "contact_submit": "送信する",
         "contact_sent": "お問い合わせを送信しました。ありがとうございました。",
         "contact_errors": {
+            "name": "お名前を入力してください。",
+            "affiliation": "ご所属を入力してください。",
             "email": "メールアドレスを正しく入力してください。",
             "message": "お問い合わせ内容を入力してください。",
             "too_long": "お問い合わせ内容は2,000字以内にしてください。",
@@ -202,13 +204,15 @@ TEXT = {
         # お問い合わせ
         "contact": "Contact",
         "contact_intro": "Send questions or comments about this tool here. The information you provide is used only to respond to your inquiry.",
-        "contact_name": "Name (optional)",
-        "contact_affiliation": "Affiliation (optional)",
+        "contact_name": "Name (required)",
+        "contact_affiliation": "Affiliation (required)",
         "contact_email": "Email address (required, for our reply)",
         "contact_message": "Message (required, up to 2,000 characters)",
         "contact_submit": "Send",
         "contact_sent": "Your message has been sent. Thank you.",
         "contact_errors": {
+            "name": "Please enter your name.",
+            "affiliation": "Please enter your affiliation.",
             "email": "Please enter a valid email address.",
             "message": "Please enter a message.",
             "too_long": "Please keep the message within 2,000 characters.",
@@ -660,9 +664,15 @@ def contact_view():
         if not submitted:
             return
         E = T["contact_errors"]
+        one_line = lambda v: " ".join(v.split())  # 改行や余分な空白を除く（メールの件名に使うため）
+        name, affiliation = one_line(name), one_line(affiliation)
         email, message = email.strip(), message.strip()
         sent_times = st.session_state.setdefault("contact_times", [])
-        if not notify.is_valid_email(email):
+        if not name:
+            st.error(E["name"])
+        elif not affiliation:
+            st.error(E["affiliation"])
+        elif not notify.is_valid_email(email):
             st.error(E["email"])
         elif not message:
             st.error(E["message"])
@@ -673,8 +683,7 @@ def contact_view():
         elif sent_times and time.time() - sent_times[-1] < CONTACT_INTERVAL_SEC:
             st.error(E["interval"])
         else:
-            one_line = lambda v: " ".join(v.split())  # 改行などを除く（メールの件名に使うため）
-            status = notify.send_contact(one_line(name), one_line(affiliation), email, message, lang)
+            status = notify.send_contact(name, affiliation, email, message, lang)
             if status == "sent":
                 sent_times.append(time.time())
                 st.session_state.contact_done = True

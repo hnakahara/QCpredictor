@@ -178,13 +178,13 @@ def send_contact(name: str, affiliation: str, email: str, message: str, lang: st
             "",
             f"日時: {_now()}",
             f"表示言語: {lang}",
-            f"お名前: {name or '（未記入）'}",
-            f"所属: {affiliation or '（未記入）'}",
+            f"お名前: {name}",
+            f"所属: {affiliation}",
             f"メールアドレス: {email}",
             "",
             "■ お問い合わせ内容",
             message,
         ]
     )
-    ok = _send(cfg, f"お問い合わせ（{name or email}）", body, reply_to=email)
+    ok = _send(cfg, f"お問い合わせ（{name}／{affiliation}）", body, reply_to=email)
     return "sent" if ok else "failed"
