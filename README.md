@@ -143,13 +143,29 @@ Up to 1,000 samples can be predicted at once by uploading a CSV file (UTF-8 or S
 The first 5 results are shown on screen and all results can be downloaded as a CSV.
 
 ```csv
-TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate
-15,Adrenal_Gland,Bx,2024/01/01,2025/04/05
+TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate,StorageTime
+15,Adrenal_Gland,Bx,2024/01/01,2025/04/05,
+60,Lung,Ope,,,209
 ```
 
-A `StorageTime` column (days) can be used instead of the two date columns, so `example/input_test.csv` can be uploaded as is.
+Enter either the two dates or `StorageTime` (days) for each row; rows with both use the dates.
+`example/input_test.csv` (with `StorageTime` only) can be uploaded as is.
 Rows with invalid values are not predicted; the reason is written in the `Message` column of the result CSV.
 The result CSV adds `StorageTime`, `<model>_pred` and `<model>_prob_Qualified` (0–1; not for SVM) columns.
+
+#### Email notification (optional)
+
+To confirm that the tool is working, the administrator can be notified by email when an analysis is run.
+Single-sample input sends the inputs (storage time in days only, not the dates) and the predictions;
+batch input sends only the number of rows. Set the following in the Streamlit **Secrets**
+(never commit them; `.streamlit/secrets.toml` is in `.gitignore`). Without these settings no email is sent.
+
+```toml
+[email]
+sender = "your-address@gmail.com"
+app_password = "Gmail app password (16 characters)"
+to = "address-to-notify@example.com"
+```
 
 Run locally (Python 3.12–3.14):
 

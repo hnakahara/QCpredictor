@@ -1,0 +1,5 @@
+# Streamlit の秘密設定（メール送信のパスワードなど）。GitHub に載せない
+.streamlit/secrets.toml
+
+__pycache__/
+*.pyc

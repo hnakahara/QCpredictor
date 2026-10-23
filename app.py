@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+import notify
 from qc_core import (
     ERROR_CODES,
     MAX_BATCH_ROWS,
@@ -29,9 +30,9 @@ REFERENCE_URL = None  # 論文のDOIが決まったら "https://doi.org/..." を
 PREVIEW_ROWS = 5  # 一括入力で画面に表示する件数
 
 TEMPLATE_CSV = (
-    "TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate\n"
-    "15,Adrenal_Gland,Bx,2024/01/01,2025/04/05\n"
-    "60,Lung,Ope,2023/06/15,2024/01/10\n"
+    "TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate,StorageTime\n"
+    "15,Adrenal_Gland,Bx,2024/01/01,2025/04/05,\n"  # 日付で入力する例
+    "60,Lung,Ope,,,209\n"  # StorageTime（日数）で入力する例
 )
 
 # ------------------------------------------------------------
@@ -70,7 +71,7 @@ TEXT = {
         "svm_note": "※ SVMは判定と確率の計算方法が異なり、両者が一致しないため確率を表示していません。",
         "legend_pass": "QCチェックをPassする可能性が高い",
         "legend_qualified": "検出感度が下がる可能性あり",
-        "disclaimer": "本研究ツールは研究用途に作成しました。表示される判定は、実際の検査品質を保証するものではありません。パネル選択には臨床情報をふまえて、総合的にご判断ください。なお入力内容はサーバーには保存されません。",
+        "disclaimer": "本研究ツールは研究用途に作成しました。表示される判定は、実際の検査品質を保証するものではありません。パネル選択には臨床情報をふまえて、総合的にご判断ください。なお入力内容はサーバーには保存されません。ツールが正常に動作しているかを確認するため、解析の実行時には管理者にメールで通知しています（1件ずつの入力では入力内容と判定結果を含みます）。",
         "license": "モデルとコードは CC BY-NC（非営利）ライセンスで公開されています。",
         "source": "ソースコード",
         "lang": "Language",
@@ -89,8 +90,9 @@ TEXT = {
             "| CancerType | がん種（下の一覧の英語名） |\n"
             "| OpeBx | Ope（手術検体）または Bx（生検検体） |\n"
             "| CollectionDate | 検体取得日（例：2024/01/01） |\n"
-            "| SubmissionDate | 検体提出日（例：2025/04/05） |\n\n"
-            "日付の代わりに StorageTime（保存期間の日数）列でも入力できます。両方ある行は日付から計算します。"
+            "| SubmissionDate | 検体提出日（例：2025/04/05） |\n"
+            "| StorageTime | 保存期間（日数）。取得日・提出日の代わりに使う場合のみ |\n\n"
+            "保存期間は、取得日・提出日か StorageTime のどちらか一方を入力します。両方ある行は日付から計算します。"
             "文字コードは UTF-8 と Shift-JIS に対応しています。"
         ),
         "format": "CSVの形式（列名とがん種の一覧）",
@@ -157,7 +159,7 @@ TEXT = {
         "svm_note": "Note: SVM computes its prediction and its probability differently, so the two can disagree. Its probability is therefore not shown.",
         "legend_pass": "likely to pass the QC check",
         "legend_qualified": "detection sensitivity may be reduced",
-        "disclaimer": "This tool was developed for research purposes. The predictions shown do not guarantee the actual quality of the test. Please decide on panel selection comprehensively, taking clinical information into account. Inputs are not stored on the server.",
+        "disclaimer": "This tool was developed for research purposes. The predictions shown do not guarantee the actual quality of the test. Please decide on panel selection comprehensively, taking clinical information into account. Inputs are not stored on the server. To confirm that the tool is working correctly, the administrator is notified by email when an analysis is run (for single-sample input, the email includes the inputs and predictions).",
         "license": "The models and code are released under the CC BY-NC (non-commercial) license.",
         "source": "Source code",
         "lang": "言語",
@@ -176,8 +178,9 @@ TEXT = {
             "| CancerType | Cancer type (a name from the list below) |\n"
             "| OpeBx | Ope (surgical) or Bx (biopsy) |\n"
             "| CollectionDate | Collection date (e.g. 2024/01/01) |\n"
-            "| SubmissionDate | Submission date (e.g. 2025/04/05) |\n\n"
-            "Instead of the dates, a StorageTime column (storage time in days) can be used. Rows with both use the dates. "
+            "| SubmissionDate | Submission date (e.g. 2025/04/05) |\n"
+            "| StorageTime | Storage time in days; only when not using the two dates |\n\n"
+            "Enter either the collection and submission dates or StorageTime. Rows with both use the dates. "
             "UTF-8 and Shift-JIS files are supported."
         ),
         "format": "CSV format (columns and cancer types)",
@@ -458,10 +461,13 @@ def single_view():
                 "ope_bx": ope_bx,
                 "days": storage_days(collection, submission),
             }
+            st.session_state.notify_pending = True  # 結果を表示するときに1回だけメール通知する
 
     last = st.session_state.get("last_input")
     if last:
         result = predictor.predict_one(last["tn_hu"], last["cancer_type"], last["ope_bx"], last["days"])
+        if st.session_state.pop("notify_pending", False):
+            notify.notify_single(last, result, lang, last["days"] > STORAGE_TRAIN_MAX)
 
         st.subheader(T["result"])
         st.markdown(T["storage_line"].format(days=last["days"]))
@@ -520,6 +526,16 @@ def batch_view():
         except Exception:
             cache = {"file_id": uploaded.file_id, "result": None, "error": ("parse", None)}
         st.session_state.batch = cache
+        if cache["result"] is not None:
+            codes = cache["result"]["codes"]
+            n_err = int(codes.apply(lambda c: any(x in ERROR_CODES for x in c)).sum())
+            notify.notify_batch(
+                total=len(codes),
+                ok=len(codes) - n_err,
+                errors=n_err,
+                warnings=int(codes.apply(lambda c: "storage_range" in c).sum()),
+                lang=lang,
+            )
 
     if cache["error"]:
         code, detail = cache["error"]
