@@ -554,16 +554,15 @@ def batch_view():
         st.markdown(
             "\n".join(f"- `{c}`" + (f"　{CANCER_JA[c]}" if lang == "ja" else "") for c in cancer_options)
         )
+    # ラベルは言語で変えない（変えるとアップロード済みファイルが消えるため）
+    st.markdown(f"**{T['upload']}**")
+    uploaded = st.file_uploader("CSV", type=["csv"], key="batch_file", label_visibility="collapsed")
     st.download_button(
         T["template"],
         data=TEMPLATE_CSV.encode("utf-8-sig"),
         file_name="qc_input_template.csv",
         mime="text/csv",
     )
-
-    # ラベルは言語で変えない（変えるとアップロード済みファイルが消えるため）
-    st.markdown(f"**{T['upload']}**")
-    uploaded = st.file_uploader("CSV", type=["csv"], key="batch_file", label_visibility="collapsed")
     if uploaded is None:
         st.session_state.pop("batch", None)
         return
