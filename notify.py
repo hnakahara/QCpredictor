@@ -1,5 +1,5 @@
 """
-解析実行時のメール通知（ツールが正常に動作しているかの確認用）
+解析実行時のメール通知（ツールが正常に動作しているかの確認用）と、お問い合わせの送信
 
 送信設定は Streamlit の Secrets に置く（GitHub には載せない）。
 Secrets に [email] がなければ何もしない（ローカル実行時など）。
@@ -16,6 +16,7 @@ Secrets に [email] がなければ何もしない（ローカル実行時など
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 import ssl
 import threading
@@ -27,14 +28,16 @@ import streamlit as st
 log = logging.getLogger(__name__)
 
 JST = timezone(timedelta(hours=9))
-DAILY_LIMIT = 200  # 1日に送る上限（Gmailの送信上限500通/日より十分少なくする）
+# 1日に送る上限（Gmailの送信上限500通/日より十分少なくする）。
+# 解析通知が上限に達してもお問い合わせは届くよう、別々に数える
+DAILY_LIMIT = {"notify": 200, "contact": 50}
 SUBJECT_PREFIX = "[QC Predictor]"
 
 
 @st.cache_resource
 def _counter() -> dict:
     """アプリ全体で共有する送信数カウンター（日付が変わったらリセット）"""
-    return {"day": None, "count": 0, "lock": threading.Lock()}
+    return {"day": None, "count": {}, "lock": threading.Lock()}
 
 
 def _config():
@@ -52,23 +55,25 @@ def _config():
         return None  # Secrets 未設定 → 通知しない
 
 
-def _within_limit() -> bool:
+def _within_limit(kind: str = "notify") -> bool:
     c = _counter()
     today = datetime.now(JST).date()
     with c["lock"]:
         if c["day"] != today:
-            c["day"], c["count"] = today, 0
-        if c["count"] >= DAILY_LIMIT:
+            c["day"], c["count"] = today, {}
+        if c["count"].get(kind, 0) >= DAILY_LIMIT[kind]:
             return False
-        c["count"] += 1
+        c["count"][kind] = c["count"].get(kind, 0) + 1
         return True
 
 
-def _send(cfg: dict, subject: str, body: str) -> None:
+def _send(cfg: dict, subject: str, body: str, reply_to: str | None = None) -> bool:
     msg = EmailMessage()
     msg["Subject"] = f"{SUBJECT_PREFIX} {subject}"
     msg["From"] = cfg["sender"]
     msg["To"] = cfg["to"]
+    if reply_to:
+        msg["Reply-To"] = reply_to  # 届いたメールに「返信」すると問い合わせた人に届く
     msg.set_content(body)
     try:
         if cfg["use_ssl"]:
@@ -80,9 +85,11 @@ def _send(cfg: dict, subject: str, body: str) -> None:
                 if cfg["password"]:
                     s.login(cfg["sender"], cfg["password"])
                 s.send_message(msg)
+        return True
     except Exception:
         # 通知の失敗で画面を止めない。原因は Streamlit Cloud のログで確認できる
         log.exception("Failed to send notification email")
+        return False
 
 
 def send_async(subject: str, body: str) -> bool:
@@ -137,3 +144,47 @@ def notify_batch(total: int, ok: int, errors: int, warnings: int, lang: str) -> 
         ]
     )
     return send_async(f"CSV一括解析が実行されました（{total:,}件）", body)
+
+
+# ============================================================
+# お問い合わせ
+# ============================================================
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+
+def is_valid_email(address: str) -> bool:
+    return bool(EMAIL_RE.match(address or ""))
+
+
+def contact_available() -> bool:
+    """送信設定（Secrets）があるか"""
+    return _config() is not None
+
+
+def send_contact(name: str, affiliation: str, email: str, message: str, lang: str) -> str:
+    """
+    お問い合わせを管理者に送る（結果を画面に出すため、送り終わるまで待つ）。
+    戻り値："sent" / "unavailable"（設定なし）/ "limit"（本日の上限）/ "failed"（送信失敗）
+    """
+    cfg = _config()
+    if cfg is None:
+        return "unavailable"
+    if not _within_limit("contact"):
+        return "limit"
+    body = "\n".join(
+        [
+            "QC予測ツールからお問い合わせがありました。",
+            "このメールに返信すると、問い合わせた方に届きます。",
+            "",
+            f"日時: {_now()}",
+            f"表示言語: {lang}",
+            f"お名前: {name or '（未記入）'}",
+            f"所属: {affiliation or '（未記入）'}",
+            f"メールアドレス: {email}",
+            "",
+            "■ お問い合わせ内容",
+            message,
+        ]
+    )
+    ok = _send(cfg, f"お問い合わせ（{name or email}）", body, reply_to=email)
+    return "sent" if ok else "failed"

@@ -5,6 +5,7 @@ QC予測 Webアプリ（Streamlit）
 保存期間を算出し、4モデル（GBM / RF / NN / SVM）のQC判定を表示する。
 CSVファイルによる一括入力（最大1,000件）にも対応する。
 """
+import time
 from datetime import date
 from pathlib import Path
 
@@ -25,9 +26,18 @@ from qc_core import (
 )
 
 REPO_URL = "https://github.com/hnakahara/QCpredictor"
-REFERENCE = "Nakahara H, et al. npj Genomic Med. 2026"
-REFERENCE_URL = None  # 論文のDOIが決まったら "https://doi.org/..." を入れる（引用表記がリンクになる）
+REFERENCE = "Nakahara H, et al. NPJ Genom Med. 2026"
+REFERENCE_URL = "https://doi.org/10.1038/s41525-026-00595-8"
+# 画面に表示する引用表記（コピーボタン付き）
+CITATION = (
+    "Nakahara H, Niitsu H, Motonaga M, Matsuo H, Arihiro K, Hayes CN, Hinoi T. "
+    "Specimen quality shapes the actionable genomic landscape in comprehensive cancer genomic profiling. "
+    "NPJ Genom Med. 2026 Jul 11. doi: 10.1038/s41525-026-00595-8. Epub ahead of print. PMID: 42436136."
+)
 PREVIEW_ROWS = 5  # 一括入力で画面に表示する件数
+CONTACT_MAX_CHARS = 2000  # お問い合わせ内容の最大文字数
+CONTACT_INTERVAL_SEC = 60  # 同じ利用者が続けて送るときの間隔
+CONTACT_PER_SESSION = 3  # 1回の利用（ブラウザのセッション）で送れる件数
 
 TEMPLATE_CSV = (
     "TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate,StorageTime\n"
@@ -44,7 +54,7 @@ TEXT = {
         "title": "QC予測ツール",
         "lead": "検体の情報を入力すると、4つの機械学習モデルがQCチェックの見込みを判定します。",
         "reference": "組織検体を用いたがんゲノムプロファイリング検査の検査品質評価のために作成しました（{ref}）。",
-        "cite": "本ツールを使用して研究を行う場合は、上記論文の引用をお願いします。",
+        "cite": "本ツールを使用して研究を行う場合は、以下の論文の引用をお願いします。",
         "mode_single": "1件ずつ入力",
         "mode_batch": "CSVで一括入力",
         "tn_hu": "腫瘍細胞含有率（%）",
@@ -82,6 +92,25 @@ TEXT = {
             "NN": "ニューラルネットワーク",
         },
         "ope_bx_labels": {"Ope": "手術検体（Ope）", "Bx": "生検検体（Bx）"},
+        # お問い合わせ
+        "contact": "お問い合わせ",
+        "contact_intro": "ツールについてのご質問・ご意見は、こちらからお送りください。いただいた情報は、お問い合わせへの回答のためにのみ使用します。",
+        "contact_name": "お名前（任意）",
+        "contact_affiliation": "ご所属（任意）",
+        "contact_email": "メールアドレス（返信用・必須）",
+        "contact_message": "お問い合わせ内容（必須・2,000字まで）",
+        "contact_submit": "送信する",
+        "contact_sent": "お問い合わせを送信しました。ありがとうございました。",
+        "contact_errors": {
+            "email": "メールアドレスを正しく入力してください。",
+            "message": "お問い合わせ内容を入力してください。",
+            "too_long": "お問い合わせ内容は2,000字以内にしてください。",
+            "interval": "続けて送信する場合は、1分ほど時間をおいてください。",
+            "session_limit": "一度に送信できるのは3件までです。時間をおいて再度お試しください。",
+            "limit": "本日の受付件数の上限に達しました。明日以降に再度お試しください。",
+            "unavailable": "現在お問い合わせを受け付けていません。",
+            "failed": "送信に失敗しました。時間をおいて再度お試しください。",
+        },
         # CSV一括入力
         "batch_intro": "CSVファイルで最大{max:,}件をまとめて予測できます。結果は画面に先頭{n}件を表示し、全件はCSVでダウンロードできます。",
         "batch_columns": (
@@ -132,7 +161,7 @@ TEXT = {
         "title": "QC Predictor",
         "lead": "Enter the sample information and four machine learning models will predict its QC outcome.",
         "reference": "Developed to evaluate the quality of comprehensive genomic profiling tests using tissue specimens ({ref}).",
-        "cite": "If you use this tool in your research, please cite the paper above.",
+        "cite": "If you use this tool in your research, please cite the following paper:",
         "mode_single": "Single sample",
         "mode_batch": "Batch (CSV)",
         "tn_hu": "Tumor nuclei (%)",
@@ -170,6 +199,25 @@ TEXT = {
             "NN": "Neural Network",
         },
         "ope_bx_labels": {"Ope": "Surgical (Ope)", "Bx": "Biopsy (Bx)"},
+        # お問い合わせ
+        "contact": "Contact",
+        "contact_intro": "Send questions or comments about this tool here. The information you provide is used only to respond to your inquiry.",
+        "contact_name": "Name (optional)",
+        "contact_affiliation": "Affiliation (optional)",
+        "contact_email": "Email address (required, for our reply)",
+        "contact_message": "Message (required, up to 2,000 characters)",
+        "contact_submit": "Send",
+        "contact_sent": "Your message has been sent. Thank you.",
+        "contact_errors": {
+            "email": "Please enter a valid email address.",
+            "message": "Please enter a message.",
+            "too_long": "Please keep the message within 2,000 characters.",
+            "interval": "Please wait about a minute before sending another message.",
+            "session_limit": "You can send up to 3 messages at a time. Please try again later.",
+            "limit": "Today's limit for inquiries has been reached. Please try again tomorrow.",
+            "unavailable": "Inquiries are not being accepted at the moment.",
+            "failed": "Sending failed. Please try again later.",
+        },
         # CSV一括入力
         "batch_intro": "Predict up to {max:,} samples at once from a CSV file. The first {n} results are shown on screen; download the CSV for all results.",
         "batch_columns": (
@@ -360,6 +408,7 @@ with head_l:
 st.write(T["lead"])
 ref = f"[{REFERENCE}]({REFERENCE_URL})" if REFERENCE_URL else REFERENCE
 st.caption(T["reference"].format(ref=ref) + "  \n" + T["cite"])
+st.code(CITATION, language=None, wrap_lines=True)  # 右上のボタンでコピーできる
 
 with st.spinner(T["loading"]):
     predictor = get_predictor()
@@ -588,6 +637,53 @@ def batch_view():
     )
 
 
+# ============================================================
+# お問い合わせ
+# ============================================================
+def contact_view():
+    with st.expander(T["contact"]):
+        if st.session_state.pop("contact_done", False):
+            st.success(T["contact_sent"])
+        st.caption(T["contact_intro"])
+        # 送信に成功したらフォームを空にするため、キーに番号を付けて作り直す
+        n = st.session_state.get("contact_n", 0)
+        with st.form(f"contact_form_{lang}_{n}"):
+            c1, c2 = st.columns(2)
+            with c1:
+                name = st.text_input(T["contact_name"], max_chars=100)
+            with c2:
+                affiliation = st.text_input(T["contact_affiliation"], max_chars=200)
+            email = st.text_input(T["contact_email"], max_chars=254)
+            message = st.text_area(T["contact_message"], height=160)
+            submitted = st.form_submit_button(T["contact_submit"])
+
+        if not submitted:
+            return
+        E = T["contact_errors"]
+        email, message = email.strip(), message.strip()
+        sent_times = st.session_state.setdefault("contact_times", [])
+        if not notify.is_valid_email(email):
+            st.error(E["email"])
+        elif not message:
+            st.error(E["message"])
+        elif len(message) > CONTACT_MAX_CHARS:
+            st.error(E["too_long"])
+        elif len(sent_times) >= CONTACT_PER_SESSION:
+            st.error(E["session_limit"])
+        elif sent_times and time.time() - sent_times[-1] < CONTACT_INTERVAL_SEC:
+            st.error(E["interval"])
+        else:
+            one_line = lambda v: " ".join(v.split())  # 改行などを除く（メールの件名に使うため）
+            status = notify.send_contact(one_line(name), one_line(affiliation), email, message, lang)
+            if status == "sent":
+                sent_times.append(time.time())
+                st.session_state.contact_done = True
+                st.session_state.contact_n = n + 1
+                st.rerun()
+            else:
+                st.error(E[status])
+
+
 if mode == "batch":
     batch_view()
 else:
@@ -596,3 +692,4 @@ else:
 st.divider()
 st.caption(T["disclaimer"])
 st.caption(f"{T['license']}　[{T['source']}]({REPO_URL})")
+contact_view()

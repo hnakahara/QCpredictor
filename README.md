@@ -159,6 +159,7 @@ To confirm that the tool is working, the administrator can be notified by email 
 Single-sample input sends the inputs (storage time in days only, not the dates) and the predictions;
 batch input sends only the number of rows. Set the following in the Streamlit **Secrets**
 (never commit them; `.streamlit/secrets.toml` is in `.gitignore`). Without these settings no email is sent.
+The same settings are used by the contact form at the bottom of the page; replying to a contact email goes to the sender.
 
 ```toml
 [email]
@@ -181,7 +182,7 @@ The app is designed to be deployed on [Streamlit Community Cloud](https://stream
 This tool was developed to evaluate the quality of comprehensive genomic profiling tests using tissue specimens.
 If you use this tool in your research, please cite:
 
-> Nakahara H, et al. npj Genomic Med. 2026.
+> Nakahara H, Niitsu H, Motonaga M, Matsuo H, Arihiro K, Hayes CN, Hinoi T. Specimen quality shapes the actionable genomic landscape in comprehensive cancer genomic profiling. NPJ Genom Med. 2026 Jul 11. doi: [10.1038/s41525-026-00595-8](https://doi.org/10.1038/s41525-026-00595-8). Epub ahead of print. PMID: 42436136.
 
 ## License
 
