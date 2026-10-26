@@ -127,6 +127,10 @@ def notify_single(inputs: dict, result, lang: str, out_of_range: bool) -> bool:
     for r in result.itertuples():
         prob = "―" if r.model == "SVM" else f"{r.prob * 100:.1f}%"
         lines.append(f"{r.model}: {r.pred}（{prob}）")
+    level = result.attrs.get("overall_level")
+    if level:
+        overall = "Pass" if level == "pass" else "Qualified"
+        lines += ["", f"■ 総合判定: {overall}（4モデル中 {result.attrs.get('n_qualified')} モデルがQualified）"]
     return send_async("1件の解析が実行されました", "\n".join(lines))
 
 

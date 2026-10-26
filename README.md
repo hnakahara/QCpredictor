@@ -97,6 +97,11 @@ Percent tumor nuclei measured by pathologist
 **StorageTime**
 FFPE storage period
 
+> **Fix (2026-10-26).** The one-hot encoding for SVM and NN used `pd.get_dummies(..., drop_first=True)` on the input,
+> which drops the first category *present in the input*. With a single sample, or a CSV lacking `Adrenal_Gland` / `Bx`,
+> the wrong column was dropped and SVM/NN predictions were incorrect. All columns are now created and aligned to the
+> training columns. Results for inputs that contain every reference category (such as `example/input_test.csv`) are unchanged.
+
 ## Usage
 
 ### Command-Line Execution
@@ -124,7 +129,27 @@ The storage time is calculated automatically as *submission date − collection 
 | Submission date | — (used to calculate StorageTime) |
 
 Each model's prediction (Pass / Qualified) and the probability of *Qualified* are shown,
-in the order GBM, RF, NN, SVM.
+in the order GBM, RF, NN, SVM, together with an **overall call**.
+
+**Thresholds.** In the web app, each model's call uses a threshold chosen on the training data only
+(the 1,298 training samples; 5-fold cross-validation repeated 5 times, threshold maximizing Youden's index),
+instead of the 50% probability used in the paper and in `predict_qc.py`:
+
+| Model | Qualified when |
+|-------|----------------|
+| GBM | probability ≥ 0.1241 |
+| RF  | probability ≥ 0.1438 |
+| NN  | probability ≥ 0.238 |
+| SVM | decision-function score ≥ −0.1389 |
+
+**Overall call.** Qualified when 2 or more of the 4 models predict Qualified (chosen on the training data
+among majority, averaged and stacked combinations). The share of samples that were actually that result:
+
+| Overall call | External validation (368 samples) | Cross-validation (training data) |
+|--------------|-----------------------------------|----------------------------------|
+| Pass (0–1 models Qualified) | Pass 217/225 (96%) | Pass 779/842 (93%) |
+| Qualified (2–3 models) | Qualified 13/79 (16%) | Qualified 47/265 (18%) |
+| Qualified (all 4 models) | Qualified 26/64 (41%) | Qualified 74/191 (39%) |
 The SVM probability is not shown because the SVM was trained with `class_weight='balanced'`,
 so its Platt-scaled probability does not agree with its prediction.
 
@@ -151,7 +176,8 @@ TN_HU,CancerType,OpeBx,CollectionDate,SubmissionDate,StorageTime
 Enter either the two dates or `StorageTime` (days) for each row; rows with both use the dates.
 `example/input_test.csv` (with `StorageTime` only) can be uploaded as is.
 Rows with invalid values are not predicted; the reason is written in the `Message` column of the result CSV.
-The result CSV adds `StorageTime`, `<model>_pred` and `<model>_prob_Qualified` (0–1; not for SVM) columns.
+The result CSV adds `StorageTime`, `<model>_pred`, `<model>_prob_Qualified` (0–1; not for SVM),
+`Overall_pred` and `Overall_n_Qualified` columns.
 
 #### Email notification (optional)
 

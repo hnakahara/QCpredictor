@@ -14,7 +14,9 @@ import streamlit as st
 
 import notify
 from qc_core import (
+    CV_THRESHOLDS,
     ERROR_CODES,
+    OVERALL_STATS,
     MAX_BATCH_ROWS,
     MODEL_ORDER,
     STORAGE_TRAIN_MAX,
@@ -92,6 +94,20 @@ TEXT = {
             "NN": "ニューラルネットワーク",
         },
         "ope_bx_labels": {"Ope": "手術検体（Ope）", "Bx": "生検検体（Bx）"},
+        # 総合判定
+        "overall": "総合判定",
+        "overall_sub": {
+            "pass": "Qualifiedと判定したモデルは0〜1個",
+            "q23": "4モデル中 {n} モデルがQualified",
+            "q4": "4モデルすべてがQualified",
+        },
+        "overall_comment": "過去の検証では、この総合判定となった検体のうち、実際に{actual}だったのは<b>{pct_ext:.0%}</b>でした（外部検証 {n_ext}件中{k_ext}件。学習データの交差検証では {n_cv}件中{k_cv}件：{pct_cv:.0%}）。",
+        "overall_rule": "総合判定は、4モデルのうち2モデル以上がQualifiedならQualifiedとしています。",
+        "threshold_note": "各モデルの判定は、学習データの交差検証で決めた閾値で行っています（Qualified確率がGBM {GBM:.1%}・RF {RF:.1%}・NN {NN:.1%}以上、SVMは判定スコア {SVM:.3f}以上でQualified{bar}）。論文の判定（確率50%）とは異なります。",
+        "overall_col": "総合",
+        "bar_note": "。棒グラフの縦線が閾値",
+        "batch_rates": "過去の検証（外部検証）では、実際にその結果だった割合は Pass {p:.0%}、Qualified（2〜3モデル）{q23:.0%}、Qualified（4モデルすべて）{q4:.0%} でした。",
+        "batch_overall": "総合判定：Pass {p:,}件、Qualified（2〜3モデル）{q23:,}件、Qualified（4モデルすべて）{q4:,}件",
         # お問い合わせ
         "contact": "お問い合わせ",
         "contact_intro": "ツールについてのご質問・ご意見は、こちらからお送りください。いただいた情報は、お問い合わせへの回答のためにのみ使用します。",
@@ -201,6 +217,20 @@ TEXT = {
             "NN": "Neural Network",
         },
         "ope_bx_labels": {"Ope": "Surgical (Ope)", "Bx": "Biopsy (Bx)"},
+        # 総合判定
+        "overall": "Overall call",
+        "overall_sub": {
+            "pass": "0–1 of 4 models predicted Qualified",
+            "q23": "{n} of 4 models predicted Qualified",
+            "q4": "All 4 models predicted Qualified",
+        },
+        "overall_comment": "In previous validation, <b>{pct_ext:.0%}</b> of samples with this overall call were actually {actual} (external validation: {k_ext} of {n_ext}; cross-validation on the training data: {k_cv} of {n_cv}, {pct_cv:.0%}).",
+        "overall_rule": "The overall call is Qualified when 2 or more of the 4 models predict Qualified.",
+        "threshold_note": "Each model's call uses a threshold set by cross-validation on the training data (Qualified when the probability is at least {GBM:.1%} for GBM, {RF:.1%} for RF and {NN:.1%} for NN, and the SVM score is at least {SVM:.3f}{bar}). This differs from the 50% probability used in the paper.",
+        "overall_col": "Overall",
+        "bar_note": "; the vertical line on each bar marks the threshold",
+        "batch_rates": "In previous (external) validation, the share of samples that were actually that result was {p:.0%} for Pass, {q23:.0%} for Qualified (2–3 models) and {q4:.0%} for Qualified (all 4 models).",
+        "batch_overall": "Overall calls: Pass {p:,}, Qualified (2–3 models) {q23:,}, Qualified (all 4 models) {q4:,}",
         # お問い合わせ
         "contact": "Contact",
         "contact_intro": "Send questions or comments about this tool here. The information you provide is used only to respond to your inquiry.",
@@ -322,6 +352,18 @@ TABLE_CSS = """
 .qc-bar > div { height: 100%; border-radius: 4px; background: #1f6feb; }
 .qc-num { font-variant-numeric: tabular-nums; min-width: 3.5rem; text-align: right; }
 .qc-legend { font-size: 0.9rem; line-height: 2; margin-bottom: 0.25rem; }
+.qc-bar { position: relative; }
+.qc-tick { position: absolute; top: -3px; width: 2px; height: 14px; margin-left: -1px;
+  background: currentColor; opacity: 0.55; border-radius: 1px; }
+.qc-overall { border: 1px solid rgba(128,128,128,0.35); border-radius: 8px; padding: 0.85rem 1rem; margin: 0.5rem 0 1rem; }
+.qc-overall.qc-lv-pass { border-left: 4px solid #2ea043; }
+.qc-overall.qc-lv-q23 { border-left: 4px solid #e67e22; }
+.qc-overall.qc-lv-q4 { border-left: 4px solid #c0392b; }
+.qc-overall-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; }
+.qc-overall-title { font-weight: 600; }
+.qc-badge.qc-big { font-size: 1.05rem; padding: 0.2rem 0.8rem; }
+.qc-overall-sub { font-size: 0.9rem; opacity: 0.75; }
+.qc-overall-comment { margin: 0.5rem 0 0; font-size: 0.9rem; line-height: 1.6; }
 </style>
 """
 
@@ -335,8 +377,10 @@ def result_table(result, T) -> str:
             prob = f'<span class="qc-num">{T["prob_na"]} {T["mark"]}</span>'
         else:
             pct = r.prob * 100
+            tick = CV_THRESHOLDS[r.model] * 100
             prob = (
-                f'<div class="qc-prob"><div class="qc-bar"><div style="width:{pct:.1f}%"></div></div>'
+                f'<div class="qc-prob"><div class="qc-bar"><div style="width:{pct:.1f}%"></div>'
+                f'<span class="qc-tick" style="left:{tick:.1f}%"></span></div>'
                 f'<span class="qc-num">{pct:.1f}%</span></div>'
             )
         rows.append(
@@ -348,6 +392,30 @@ def result_table(result, T) -> str:
         f'<table class="qc-table"><thead><tr><th>{T["model"]}</th><th>{T["verdict"]}</th>'
         + f'<th>{T["prob"]}</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
     )
+
+
+def overall_box(level: str, n_qualified: int, T) -> str:
+    """総合判定と、過去の検証での的中率のコメント"""
+    stats = OVERALL_STATS[level]
+    k_ext, n_ext = stats["external"]
+    k_cv, n_cv = stats["cv"]
+    label = "Pass" if level == "pass" else "Qualified"
+    badge = "qc-pass" if level == "pass" else "qc-qualified"
+    comment = T["overall_comment"].format(
+        actual=stats["actual"], pct_ext=k_ext / n_ext, k_ext=k_ext, n_ext=n_ext,
+        pct_cv=k_cv / n_cv, k_cv=k_cv, n_cv=n_cv,
+    )
+    return (
+        f'<div class="qc-overall qc-lv-{level}"><div class="qc-overall-head">'
+        f'<span class="qc-overall-title">{T["overall"]}</span>'
+        f'<span class="qc-badge qc-big {badge}">{label}</span>'
+        f'<span class="qc-overall-sub">{T["overall_sub"][level].format(n=n_qualified)}</span></div>'
+        f'<p class="qc-overall-comment">{comment}</p></div>'
+    )
+
+
+def threshold_note(T, bars: bool = True) -> str:
+    return T["threshold_note"].format(**CV_THRESHOLDS, bar=T["bar_note"] if bars else "")
 
 
 @st.cache_resource(show_spinner=False)
@@ -530,16 +598,20 @@ def single_view():
             f"{T['summary']}TN_HU {last['tn_hu']}% / {cancer_label(last['cancer_type'], lang)}"
             f" / {T['ope_bx_labels'][last['ope_bx']]}"
         )
+        st.markdown(
+            overall_box(result.attrs["overall_level"], result.attrs["n_qualified"], T), unsafe_allow_html=True
+        )
         st.markdown(result_table(result, T), unsafe_allow_html=True)
         legend()
 
 
-def legend():
+def legend(bars: bool = True):
     st.markdown(
         f'<p class="qc-legend"><span class="qc-badge qc-pass">Pass</span> {T["legend_pass"]}'
         f'<br><span class="qc-badge qc-qualified">Qualified</span> {T["legend_qualified"]}</p>',
         unsafe_allow_html=True,
     )
+    st.caption(T["overall_rule"] + " " + threshold_note(T, bars))
     st.caption(T["svm_note"])
 
 
@@ -603,6 +675,14 @@ def batch_view():
 
     st.subheader(T["result"])
     st.write(T["batch_summary"].format(total=total, ok=total - n_err, err=n_err, warn=int(has_warn.sum())))
+    ov = res["Overall_pred"].fillna("")
+    st.write(
+        T["batch_overall"].format(
+            p=int((ov == "Pass").sum()), q23=int(ov.str.contains("2-3").sum()), q4=int(ov.str.contains("4/4").sum())
+        )
+    )
+    rate = lambda lv: OVERALL_STATS[lv]["external"][0] / OVERALL_STATS[lv]["external"][1]
+    st.caption(T["batch_rates"].format(p=rate("pass"), q23=rate("q23"), q4=rate("q4")))
     if n_err:
         st.warning(T["batch_has_errors"])
 
@@ -613,6 +693,7 @@ def batch_view():
         {
             T["row"]: range(1, len(head) + 1),
             "StorageTime": head["StorageTime"].map(lambda v: "" if pd.isna(v) else f"{v:,.0f}"),
+            T["overall_col"]: head["Overall_pred"].fillna(""),
             **{
                 m: [
                     fmt_pred(p, head[f"{m}_prob_Qualified"].iloc[i] if m != "SVM" else None)
@@ -624,7 +705,7 @@ def batch_view():
         }
     )
     st.dataframe(preview, hide_index=True, use_container_width=True)
-    legend()
+    legend(bars=False)
 
     # 全件の結果CSV（Excelで文字化けしないよう BOM付きUTF-8）
     out = res.drop(columns=["codes"]).copy()

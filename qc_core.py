@@ -21,6 +21,37 @@ CATEGORICAL_COLUMNS = ["CancerType", "OpeBx"]
 POSITIVE_LABEL = "Qualified"  # 確率を表示する側のラベル
 MODEL_ORDER = ["GBM", "RF", "NN", "SVM"]  # 画面・CSVでの表示順
 
+# ------------------------------------------------------------
+# 判定の閾値
+# 学習データ（1,298件。元データ1,623件を random_state=17 で層化して80%に分けたもの）だけを使い、
+# 5分割交差検証×5回の「学習に使っていない状態での確率」から、Youden指数が最大になる点を選んだ。
+# GBM・RF・NN は Qualified 確率、SVM は判定スコア（decision_function）に対する閾値。
+# ------------------------------------------------------------
+CV_THRESHOLDS = {"GBM": 0.1241, "RF": 0.1438, "NN": 0.238, "SVM": -0.1389}
+PAPER_THRESHOLDS = {"GBM": 0.5, "RF": 0.5, "NN": 0.5, "SVM": 0.0}  # 論文・predict_qc.py の判定
+
+# ------------------------------------------------------------
+# 総合判定：上の閾値で4モデルを判定し、Qualified と判定したモデルの数で決める
+#   0〜1モデル → Pass / 2〜3モデル → Qualified / 4モデルすべて → Qualified
+# OVERALL_STATS は「その総合判定になった検体のうち、実際にその結果だった件数」
+#   external: 外部検証368件（学習に使っていない検体）
+#   cv      : 学習データ1,298件の交差検証
+# ------------------------------------------------------------
+OVERALL_STATS = {
+    "pass": {"actual": "Pass", "external": (217, 225), "cv": (779, 842)},
+    "q23": {"actual": "Qualified", "external": (13, 79), "cv": (47, 265)},
+    "q4": {"actual": "Qualified", "external": (26, 64), "cv": (74, 191)},
+}
+
+
+def overall_level(n_qualified: int) -> str:
+    """Qualified と判定したモデル数 → 総合判定の区分"""
+    if n_qualified >= 4:
+        return "q4"
+    if n_qualified >= 2:
+        return "q23"
+    return "pass"
+
 
 # 学習データの保存期間の範囲（日）。これを超える入力には警告を出す
 STORAGE_TRAIN_MIN = 0
@@ -104,7 +135,10 @@ class QCPredictor:
 
     @staticmethod
     def _one_hot_scale(df, feature_columns, scaler):
-        X = pd.get_dummies(df[INPUT_COLUMNS], columns=CATEGORICAL_COLUMNS, drop_first=True)
+        # drop_first=True は「入力に含まれるカテゴリの中で最初のもの」を落とすため、
+        # 1件だけの入力や一部のがん種しかないCSVでは、学習時と違う列が落ちてしまう。
+        # すべての列を作ってから学習時の列（基準カテゴリ Adrenal_Gland・Bx を除いたもの）に合わせる。
+        X = pd.get_dummies(df[INPUT_COLUMNS], columns=CATEGORICAL_COLUMNS)
         X = X.reindex(columns=feature_columns, fill_value=0)
         return scaler.transform(X)
 
@@ -118,54 +152,75 @@ class QCPredictor:
     # ------------------------------------------------------------
     # 予測
     # ------------------------------------------------------------
-    def predict(self, df: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, df: pd.DataFrame, thresholds: str = "cv") -> pd.DataFrame:
         """
-        各モデルの判定（*_pred）と Qualified 確率（*_prob）を返す。
+        各モデルの判定（*_pred）、Qualified 確率（*_prob）、総合判定（Overall_*）を返す。
+
+        thresholds="cv"   : 学習データの交差検証で決めた閾値（Youden最大。アプリの既定）
+        thresholds="paper": 論文・predict_qc.py と同じ判定（確率0.5、SVMは predict()）
+
         SVMは判定と確率が一致しないため（class_weight='balanced' と
-        Plattスケーリングの差）、確率は返さない。
+        Plattスケーリングの差）、確率は返さず、判定スコア（SVM_score）で判定する。
         """
         missing = set(INPUT_COLUMNS) - set(df.columns)
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
+        th = CV_THRESHOLDS if thresholds == "cv" else PAPER_THRESHOLDS
+        label = lambda flag: np.where(flag, POSITIVE_LABEL, "Pass")
 
         out = {}
 
         # GBM
         X = self._label_encode(df, self.gbm_label_encoders, self.gbm_features)
-        out["GBM_pred"] = self.gbm_y_encoder.inverse_transform(self.gbm.predict(X))
         out["GBM_prob"] = self._positive_proba(self.gbm, X, self.gbm_y_encoder)
 
         # RF
         X = self._label_encode(df, self.rf_label_encoders, self.rf_features)
-        out["RF_pred"] = self.rf_y_encoder.inverse_transform(self.rf.predict(X))
         out["RF_prob"] = self._positive_proba(self.rf, X, self.rf_y_encoder)
 
-        # SVM（判定のみ）
+        # NN（シグモイド出力 = 2番目のクラス = Qualified の確率）
+        X = self._one_hot_scale(df, self.nn_feature_columns, self.nn_scaler)
+        assert self.nn_label_encoder.classes_[1] == POSITIVE_LABEL
+        out["NN_prob"] = self.nn.predict_proba(X)
+
+        # SVM（判定スコア＝境界からの距離。Qualified側が正）
         X = self._one_hot_scale(df, self.svm_feature_columns, self.svm_scaler)
-        out["SVM_pred"] = self.svm.predict(X)
+        score = self.svm.decision_function(X)
+        if list(self.svm.classes_).index(POSITIVE_LABEL) == 0:
+            score = -score
+        out["SVM_score"] = score
         out["SVM_prob"] = np.full(len(df), np.nan)
 
-        # NN（シグモイド出力 = 2番目のクラス = Qualified の確率、閾値0.5）
-        X = self._one_hot_scale(df, self.nn_feature_columns, self.nn_scaler)
-        prob = self.nn.predict_proba(X)
-        assert self.nn_label_encoder.classes_[1] == POSITIVE_LABEL
-        out["NN_pred"] = self.nn_label_encoder.inverse_transform((prob > 0.5).astype(int))
-        out["NN_prob"] = prob
+        for m in ["GBM", "RF", "NN"]:
+            # 論文の判定は「0.5を超える」なので、閾値ちょうどの扱いもそれに合わせる
+            out[f"{m}_pred"] = label(out[f"{m}_prob"] > th[m] if thresholds == "paper" else out[f"{m}_prob"] >= th[m])
+        out["SVM_pred"] = self.svm.predict(X) if thresholds == "paper" else label(score >= th["SVM"])
 
-        return pd.DataFrame(out, index=df.index)
+        res = pd.DataFrame(out, index=df.index)
+        n_q = sum((res[f"{m}_pred"] == POSITIVE_LABEL).astype(int) for m in MODEL_ORDER)
+        res["Overall_n_Qualified"] = n_q
+        res["Overall_level"] = [overall_level(n) for n in n_q]
+        return res
 
     def predict_one(self, tn_hu: float, cancer_type: str, ope_bx: str, storage_time: int) -> pd.DataFrame:
-        """1件分を予測し、モデルごとの行（model / pred / prob）で返す。"""
+        """
+        1件分を予測し、モデルごとの行（model / pred / prob）で返す。
+        総合判定は result.attrs["overall_level"]（"pass" / "q23" / "q4"）と
+        result.attrs["n_qualified"] に入れる。
+        """
         row = pd.DataFrame(
             [{"TN_HU": tn_hu, "CancerType": cancer_type, "OpeBx": ope_bx, "StorageTime": storage_time}]
         )
         res = self.predict(row).iloc[0]
-        return pd.DataFrame(
+        result = pd.DataFrame(
             [
                 {"model": m, "pred": res[f"{m}_pred"], "prob": res[f"{m}_prob"]}
                 for m in MODEL_ORDER
             ]
         )
+        result.attrs["n_qualified"] = int(res["Overall_n_Qualified"])
+        result.attrs["overall_level"] = res["Overall_level"]
+        return result
 
 
 # ============================================================
@@ -344,6 +399,9 @@ def validate_batch(df: pd.DataFrame, cancer_types: list, ope_bx: list) -> pd.Dat
     return pd.DataFrame(rows, index=df.index)
 
 
+OVERALL_CSV_LABEL = {"pass": "Pass", "q23": "Qualified (2-3/4 models)", "q4": "Qualified (4/4 models)"}
+
+
 def predict_batch(predictor: "QCPredictor", raw: pd.DataFrame) -> pd.DataFrame:
     """
     CSVの元データに、保存期間・各モデルの判定と確率・判定結果コードを付けて返す。
@@ -360,6 +418,9 @@ def predict_batch(predictor: "QCPredictor", raw: pd.DataFrame) -> pd.DataFrame:
         if m != "SVM":
             result[f"{m}_prob_Qualified"] = np.nan
 
+    result["Overall_pred"] = None
+    result["Overall_n_Qualified"] = pd.array([pd.NA] * len(result), dtype="Int64")
+
     if ok.any():
         X = checked.loc[ok, INPUT_COLUMNS].astype({"TN_HU": float, "StorageTime": float})
         pred = predictor.predict(X)
@@ -367,6 +428,8 @@ def predict_batch(predictor: "QCPredictor", raw: pd.DataFrame) -> pd.DataFrame:
             result.loc[ok, f"{m}_pred"] = pred[f"{m}_pred"].values
             if m != "SVM":
                 result.loc[ok, f"{m}_prob_Qualified"] = pred[f"{m}_prob"].astype(float).round(4).values
+        result.loc[ok, "Overall_pred"] = pred["Overall_level"].map(OVERALL_CSV_LABEL).values
+        result.loc[ok, "Overall_n_Qualified"] = pred["Overall_n_Qualified"].values
 
     result["codes"] = checked["codes"]
     return result.reset_index(drop=True)

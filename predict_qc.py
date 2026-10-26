@@ -72,8 +72,10 @@ def preprocess_rf(df):
 def preprocess_svm(df):
     X = pd.get_dummies(
         df[["TN_HU", "CancerType", "OpeBx", "StorageTime"]],
-        columns=["CancerType", "OpeBx"],
-        drop_first=True
+        columns=["CancerType", "OpeBx"]
+        # drop_first=True は入力に含まれるカテゴリの中で最初のものを落とすため、
+        # 1件だけの入力や一部のがん種しかないCSVでは学習時と違う列が落ちる。
+        # すべての列を作り、下の reindex で学習時の列（基準カテゴリを除く）に合わせる。
     )
     X = X.reindex(columns=feature_columns_svm, fill_value=0)
     return scaler_svm.transform(X)
@@ -82,8 +84,10 @@ def preprocess_svm(df):
 def preprocess_nn(df):
     X = pd.get_dummies(
         df[["TN_HU", "CancerType", "OpeBx", "StorageTime"]],
-        columns=["CancerType", "OpeBx"],
-        drop_first=True
+        columns=["CancerType", "OpeBx"]
+        # drop_first=True は入力に含まれるカテゴリの中で最初のものを落とすため、
+        # 1件だけの入力や一部のがん種しかないCSVでは学習時と違う列が落ちる。
+        # すべての列を作り、下の reindex で学習時の列（基準カテゴリを除く）に合わせる。
     )
     X = X.reindex(columns=feature_columns_nn, fill_value=0)
     return scaler_nn.transform(X)
