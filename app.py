@@ -364,6 +364,11 @@ TABLE_CSS = """
 .qc-badge.qc-big { font-size: 1.05rem; padding: 0.2rem 0.8rem; }
 .qc-overall-sub { font-size: 0.9rem; opacity: 0.75; }
 .qc-overall-comment { margin: 0.5rem 0 0; font-size: 0.9rem; line-height: 1.6; }
+/* 日付のカレンダー：月によって週の行数（4〜6行）が変わると高さが変わり、
+   「次の月」ボタンの位置がずれて連続でクリックできない。足りない行の分だけ下に余白を足し、
+   いつも6行分の高さにそろえる（1行 = 32px） */
+[data-testid="stDateInputCalendar"] table[role="grid"]:not(:has(tbody tr:nth-child(6))) { margin-bottom: 32px; }
+[data-testid="stDateInputCalendar"] table[role="grid"]:not(:has(tbody tr:nth-child(5))) { margin-bottom: 64px; }
 </style>
 """
 
